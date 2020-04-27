@@ -3,11 +3,11 @@ title: "Processing Eurobarometer 80.2"
 author: "Daniel Antal, CFA"
 date: "4/27/2020"
 output: 
+  github_document:
+    toc: true
   html_document:
     toc: true
     theme: united
-  github_document:
-    toc: true
 ---
 
 ## Setup The Eurobarometer Package
@@ -72,14 +72,16 @@ eb13 <- ZA5877 %>%
                    contains("recoded"),
                    contains("occupation")), haven::as_factor) %>%
   mutate ( government_targets = haven::as_factor(gvrnmnt_targets_for_renewable_energy_importance)) %>%
-  mutate ( government_targets_numeric = as.numeric(gvrnmnt_targets_for_renewable_energy_importance),
-           government_targets_important = case_when (
-           government_targets_numeric < 3 ~ 1,
-           government_targets_numeric >= 3 ~ 0,
-           is.na(government_targets_numeric ) ~ NA_real_ )
+  mutate ( government_targets_numeric =  case_when (
+           grepl("Not very|Not at all", 
+                 as.character(government_targets)) ~ 0,
+           grepl("Fairly|Very", as.character(government_targets)) ~ 1,
+           government_targets == "DK" ~ NA_real_,
+           TRUE ~ NA_real_ )
            ) %>%
   mutate ( age_education = recode_age_education(var = age_education,
-                                                age_exact = age_exact )) %>%
+                                                age_exact = age_exact )
+           ) %>%
   mutate  ( is_rural = case_when (
     grepl ( "rural", tolower(as.character(type_of_community))) ~ 1,
     grepl ( "town", tolower(as.character(type_of_community)))  ~ 0,
@@ -108,12 +110,17 @@ I created a coal region proxy with this document: [Coal regions in transition](h
 
 ```{r simplemodels}
 eb13 <- readRDS(file.path("data", "eb13.rds"))
-summary ( glm ( government_targets_important ~ age_exact +
-                  is_rural + is_student  +
-                  is_coal_region,
+
+no_poland_model_13 <- glm ( government_targets_numeric ~ 
+                              age_exact +
+                              is_student  + 
+                              is_rural +
+                              is_coal_region,
                 data = filter ( eb13,
                                 country_code_iso_3166!= "PL"),
-                family = 'binomial'))
+                family = 'binomial')
+
+summary (no_poland_model_13)
 ```
 
 Support for the target variable `GVRNMNT TARGETS FOR RENEWABLE ENERGY` coded to binary variable (important, not important)
@@ -127,13 +134,16 @@ Support for the target variable `GVRNMNT TARGETS FOR RENEWABLE ENERGY` coded to 
 The model would be similar in Poland, but the variables are not significant.
 
 ```{r simplemodelsPL, echo=TRUE}
-summary ( glm ( government_targets_important ~ age_exact +
-                  is_rural + is_student +
-                  is_coal_region,
+poland_model_13 <- glm ( government_targets_numeric ~ 
+                              age_exact +
+                              is_student +
+                              is_rural +
+                              is_coal_region,
                 data = filter ( eb13,
                                 country_code_iso_3166 == "PL"),
-                family = 'binomial'))
+                family = 'binomial')
 
+summary(poland_model_13)
 ```
 
 ### Simple Model With Country Effects
@@ -141,8 +151,18 @@ summary ( glm ( government_targets_important ~ age_exact +
 One explanation for the difference is that support for the measure in Poland is overall smaller than in the EU.
 
 ```{r country13, echo=TRUE}
-summary ( glm ( government_targets_important ~ age_exact +
-                  is_student +
+summary ( glm ( government_targets_numeric ~ age_exact +
+                  is_student + is_rural +
+                  country_code_iso_3166,
+                data = eb13,
+                family = 'binomial'))
+```
+
+
+
+```{r final13, echo=TRUE}
+summary ( glm ( government_targets_numeric ~ age_exact +
+                  is_coal_region +
                   country_code_iso_3166,
                 data = eb13,
                 family = 'binomial'))
