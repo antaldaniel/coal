@@ -54,9 +54,8 @@ ZA5877 <- ZA5877_raw %>%
 ### Preprocessing the Eurobarometer 80.2 Data
 
 ```{r preprocess13, eval=FALSE}
-source(file.path("R", "which_coal_region.R"))
 # Change to eval=TRUE if you want to run this code
-eb13 <- ZA5877 %>%
+eb13_no_coal <- ZA5877 %>%
   select ( one_of("serious_world_problems_climate_change",
                   "serious_world_problems_climate_change_sum" ,
                   "climate_change_action_generate_renewable_energy",
@@ -90,16 +89,58 @@ eb13 <- ZA5877 %>%
     grepl ( "refuse", tolower(as.character(type_of_community)))  ~ NA_real_,
     TRUE ~ 0)
   ) %>%
-  mutate ( year_survey = 2013 ) %>%
-  mutate ( coal_region = which_coal_region(region_nuts_codes)) %>%
-  mutate ( is_coal_region = ifelse (is.na(coal_region), 0, 1))
+  mutate ( year_survey = 2013 )
 
-saveRDS(eb13, file.path("data", "eb13.rds"), 
-        version = 2 )
+saveRDS(eb13_no_coal,
+        file.path("data-raw", "eb13_no_coal.rds"), version = 2)
 ```
 
 I created a coal region proxy with this document: [Coal regions in transition](https://ec.europa.eu/energy/topics/oil-gas-and-coal/EU-coal-regions/coal-regions-transition_en)
 
+```{r coalregions}
+coal_regions <- readRDS( file.path("data-raw", "eb13_no_coal.rds")
+                         ) %>% 
+  select ( starts_with( "country_code"),
+           starts_with ("region")) %>%
+  distinct_all() %>%
+  mutate ( coal_region = case_when (
+    region_nuts_codes == "DE4" ~ "Brandenburg",
+    region_nuts_codes == "DED" ~ "Saxony",
+    region_nuts_codes == "DEE" ~ "Saxony-Anhalt",
+    region_nuts_codes == "DEA" ~ "Nord-Rhein-Westphalia",
+    region_nuts_codes == "RO42" ~ "Jiu Valley [part]",
+    region_nuts_codes == "ES12" ~ "Asturias",
+    region_nuts_codes == "ES24" ~ "Aragón",
+    region_nuts_codes == "ES41" ~ "Castilla-y-León",
+    region_nuts_codes == "SK02" ~ "Upper Nitra [part]",
+    region_nuts_codes == "CZ04" ~ "Karlovy Vary & Usti",
+    region_nuts_codes == "CZ08" ~ "Moravia-Silesia",
+    region_nuts_codes %in% c("EL13", "EL53" ) ~ "Western Macedonia",
+    region_nuts_codes %in% c("SI015", "SI035" ) ~ "Zasavska",
+    region_nuts_codes %in% c("SI014", "SI004" ) ~ "Savinjsko-Šaleška",
+    region_nuts_codes == "PL21"  ~ "Lesser Poland",
+    region_nuts_codes == "PL22"  ~ "Silesia",
+    region_nuts_codes == "PL41"  ~ "Greater Poland",
+    region_nuts_codes == "PL51"  ~ "Lower Silesia",
+    TRUE ~ NA_character_
+    )) %>%
+  mutate ( is_coal_region = ifelse (is.na(coal_region), 0, 1))
+
+saveRDS(coal_regions, file.path("data", "coal_regions.rds"), 
+        version = 2) #backward compatibilty
+
+```
+
+```{r joining}
+eb13_no_coal <- readRDS(file.path("data-raw", "eb13_no_coal.rds"))
+
+eb13 <- eb13_no_coal %>%
+  left_join ( readRDS(file.path("data", "coal_regions.rds")), 
+              by = c("region_nuts_names", 
+                     "region_nuts_codes", "country_code_iso_3166"))
+
+saveRDS(eb13, file.path("data", "eb13.rds"))
+```
 
 ## Simple Models 
 
