@@ -48,18 +48,28 @@ eb18 <- ZA7488 %>%
                   "region_nuts_names", "region_nuts_codes",
                   "age_exact", "age_education", "type_of_community",
                   "age_education_recoded_5_cat",
-                  "country_code_iso_3166"),
+                  "country_code_iso_3166", 
+                  "weight_result_from_target_redressment"),
            contains("occupation")) %>%
-  dplyr::rename ( eu_env_policy  = eu_env_policy_statements_more_pub_fin_support_for_clean_energy_even_if_fossil_subsidies_reduced) %>%
+  dplyr::rename ( eu_env_policy  = eu_env_policy_statements_more_pub_fin_support_for_clean_energy_even_if_fossil_subsidies_reduced, 
+                  w1 = weight_result_from_target_redressment ) %>%
   mutate ( eu_env_policy = haven::as_factor ( eu_env_policy )) %>%
   mutate_at ( vars(starts_with("type"),
                    contains("recoded"),
                    contains("occupation")), haven::as_factor) %>%
   mutate ( eu_env_policy_numeric = case_when (
-           grepl("agree", as.character(eu_env_policy))    ~ 1,
+           grepl("Totally agree|Tend to agree",
+                 as.character(eu_env_policy))    ~ 1,
            grepl("disagree", as.character(eu_env_policy)) ~ 0,
            TRUE ~ NA_real_ )
            ) %>%
+  mutate ( is_eu_env_policy_totally = case_when (
+           grepl("Totally agree",
+                 as.character(eu_env_policy))    ~ 1,
+           grepl("Tend to|disagree", as.character(eu_env_policy)) ~ 0,
+           TRUE ~ NA_real_ )
+           ) %>%
+  mutate ( total_agreement_weighted = w1*is_eu_env_policy_totally) %>%
   mutate ( age_education = recode_age_education(var = age_education,
                                                 age_exact = age_exact )
            ) %>%
@@ -88,12 +98,39 @@ transition](https://ec.europa.eu/energy/topics/oil-gas-and-coal/EU-coal-regions/
 
 ## Simple Models
 
+The problem with this variable is that it has very little variance.
+
+``` r
+library(ggplot2)
+
+eb18 <- readRDS(file.path("data", "eb18.rds"))
+
+eb18 %>%
+  ggplot( data = ., 
+          aes ( x= as.factor(eu_env_policy_numeric) )) +
+  geom_histogram( stat = "count")
+```
+
+    ## Warning: Ignoring unknown parameters: binwidth, bins, pad
+
+![](Eurobarometer_18_files/figure-gfm/histogram-1.png)<!-- -->
+
+``` r
+eb18 %>%
+  ggplot( data = ., 
+          aes ( x= as.factor(is_eu_env_policy_totally ) )) +
+  geom_histogram( stat = "count")
+```
+
+    ## Warning: Ignoring unknown parameters: binwidth, bins, pad
+
+![](Eurobarometer_18_files/figure-gfm/histogram-2.png)<!-- -->
+
 ### Simple GLM model outside Poland
 
 ``` r
-eb18 <- readRDS(file.path("data", "eb18.rds"))
-summary ( glm ( eu_env_policy ~ age_exact +
-                  is_rural + is_student  +
+summary ( glm ( is_eu_env_policy_totally ~ age_exact +
+                  is_rural +
                   is_coal_region,
                 data = filter ( eb18,
                                 country_code_iso_3166!= "PL"),
@@ -102,32 +139,31 @@ summary ( glm ( eu_env_policy ~ age_exact +
 
     ## 
     ## Call:
-    ## glm(formula = eu_env_policy ~ age_exact + is_rural + is_student + 
+    ## glm(formula = is_eu_env_policy_totally ~ age_exact + is_rural + 
     ##     is_coal_region, family = "binomial", data = filter(eb18, 
     ##     country_code_iso_3166 != "PL"))
     ## 
     ## Deviance Residuals: 
     ##    Min      1Q  Median      3Q     Max  
-    ## -1.547  -1.295   1.014   1.061   1.118  
+    ## -1.141  -1.140  -1.003   1.215   1.393  
     ## 
     ## Coefficients:
-    ##                 Estimate Std. Error z value Pr(>|z|)    
-    ## (Intercept)    0.0952835  0.0437910   2.176  0.02956 *  
-    ## age_exact      0.0030919  0.0007638   4.048 5.17e-05 ***
-    ## is_rural       0.0844655  0.0263362   3.207  0.00134 ** 
-    ## is_student     0.0246811  0.0566067   0.436  0.66283    
-    ## is_coal_region 0.3828422  0.0552942   6.924 4.40e-12 ***
+    ##                  Estimate Std. Error z value Pr(>|z|)    
+    ## (Intercept)    -8.405e-02  4.001e-02  -2.101   0.0357 *  
+    ## age_exact      -7.167e-05  7.215e-04  -0.099   0.9209    
+    ## is_rural       -6.518e-02  2.740e-02  -2.379   0.0174 *  
+    ## is_coal_region -3.383e-01  5.749e-02  -5.884 4.01e-09 ***
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
     ## (Dispersion parameter for binomial family taken to be 1)
     ## 
-    ##     Null deviance: 35829  on 26287  degrees of freedom
-    ## Residual deviance: 35749  on 26283  degrees of freedom
-    ##   (17 observations deleted due to missingness)
-    ## AIC: 35759
+    ##     Null deviance: 32913  on 23812  degrees of freedom
+    ## Residual deviance: 32871  on 23809  degrees of freedom
+    ##   (2492 observations deleted due to missingness)
+    ## AIC: 32879
     ## 
-    ## Number of Fisher Scoring iterations: 4
+    ## Number of Fisher Scoring iterations: 3
 
 Support for the target variable
 `eu_env_policy_statements_more_pub_fin_support_for_clean_energy_even_if_fossil_subsidies_reduced`
@@ -137,11 +173,13 @@ significant variable \* less likely to be supported in coal areas.
 
 ### Simple GLM model for Poland
 
-The model would be similar in Poland, but the variables are not
-significant.
+The `coal regions` in Poland are not significant and do not have a
+negative coefficient.
 
 ``` r
-summary ( glm ( eu_env_policy ~ is_coal_region,
+summary ( glm ( is_eu_env_policy_totally ~ age_exact +
+                  is_rural + 
+                  is_coal_region,
                 data = filter ( eb18,
                                 country_code_iso_3166 == "PL"),
                 family = 'binomial'))
@@ -149,157 +187,170 @@ summary ( glm ( eu_env_policy ~ is_coal_region,
 
     ## 
     ## Call:
-    ## glm(formula = eu_env_policy ~ is_coal_region, family = "binomial", 
-    ##     data = filter(eb18, country_code_iso_3166 == "PL"))
+    ## glm(formula = is_eu_env_policy_totally ~ age_exact + is_rural + 
+    ##     is_coal_region, family = "binomial", data = filter(eb18, 
+    ##     country_code_iso_3166 == "PL"))
     ## 
     ## Deviance Residuals: 
     ##     Min       1Q   Median       3Q      Max  
-    ## -1.4823  -1.4152   0.9005   0.9005   0.9569  
+    ## -1.0263  -0.9845  -0.9687   1.3592   1.4080  
     ## 
     ## Coefficients:
-    ##                Estimate Std. Error z value Pr(>|z|)    
-    ## (Intercept)     0.69315    0.08372   8.279   <2e-16 ***
-    ## is_coal_region -0.14953    0.13411  -1.115    0.265    
+    ##                  Estimate Std. Error z value Pr(>|z|)  
+    ## (Intercept)    -0.4973402  0.2246196  -2.214   0.0268 *
+    ## age_exact       0.0003518  0.0040666   0.087   0.9311  
+    ## is_rural       -0.0356018  0.1384704  -0.257   0.7971  
+    ## is_coal_region  0.1017761  0.1386059   0.734   0.4628  
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
     ## (Dispersion parameter for binomial family taken to be 1)
     ## 
-    ##     Null deviance: 1334.0  on 1033  degrees of freedom
-    ## Residual deviance: 1332.8  on 1032  degrees of freedom
-    ## AIC: 1336.8
+    ##     Null deviance: 1231.7  on 921  degrees of freedom
+    ## Residual deviance: 1231.1  on 918  degrees of freedom
+    ##   (112 observations deleted due to missingness)
+    ## AIC: 1239.1
     ## 
     ## Number of Fisher Scoring iterations: 4
 
 ### Simple Model With Country Effects
 
-One explanation for the difference is that support for the measure in
-Poland is overall smaller than in the EU. But in this case the
-difference is not very prononunced.
+The Poland-only model is counterintuitive, becuase in Poland the level
+of total agreement is 29% less likely than in the average EU country.
 
 ``` r
-summary ( glm ( eu_env_policy ~ age_exact +
-                  is_student +
-                  country_code_iso_3166,
+country_effects_18 <- glm ( is_eu_env_policy_totally ~
+                              age_exact +
+                              is_rural + 
+                              country_code_iso_3166,
                 data = eb18,
-                family = 'binomial'))
+                family = 'binomial')
+
+summary ( country_effects_18 )
 ```
 
     ## 
     ## Call:
-    ## glm(formula = eu_env_policy ~ age_exact + is_student + country_code_iso_3166, 
-    ##     family = "binomial", data = eb18)
-    ## 
-    ## Deviance Residuals: 
-    ##    Min      1Q  Median      3Q     Max  
-    ## -1.663  -1.249   0.842   1.047   1.468  
-    ## 
-    ## Coefficients:
-    ##                             Estimate Std. Error z value Pr(>|z|)    
-    ## (Intercept)                0.0475664  0.0736829   0.646 0.518568    
-    ## age_exact                  0.0037201  0.0007777   4.783 1.72e-06 ***
-    ## is_student                 0.0331531  0.0566834   0.585 0.558628    
-    ## country_code_iso_3166BE    0.1706207  0.0892505   1.912 0.055914 .  
-    ## country_code_iso_3166BG    0.5243954  0.0918125   5.712 1.12e-08 ***
-    ## country_code_iso_3166CY   -0.7717582  0.1114201  -6.927 4.31e-12 ***
-    ## country_code_iso_3166CZ    0.7049074  0.0937192   7.521 5.42e-14 ***
-    ## country_code_iso_3166DE-E  0.3127020  0.1113719   2.808 0.004989 ** 
-    ## country_code_iso_3166DE-W  0.1495923  0.0900293   1.662 0.096594 .  
-    ## country_code_iso_3166DK   -0.0585378  0.0895180  -0.654 0.513162    
-    ## country_code_iso_3166EE    0.7008549  0.0941461   7.444 9.74e-14 ***
-    ## country_code_iso_3166ES   -0.4411332  0.0890432  -4.954 7.26e-07 ***
-    ## country_code_iso_3166FI    0.0830834  0.0899315   0.924 0.355563    
-    ## country_code_iso_3166FR    0.2229019  0.0899399   2.478 0.013199 *  
-    ## country_code_iso_3166GB   -0.0822623  0.0891132  -0.923 0.355944    
-    ## country_code_iso_3166GR    0.0864538  0.0895131   0.966 0.334133    
-    ## country_code_iso_3166HR   -0.1302264  0.0887030  -1.468 0.142072    
-    ## country_code_iso_3166HU   -0.1437550  0.0886748  -1.621 0.104986    
-    ## country_code_iso_3166IE   -0.4296912  0.0892248  -4.816 1.47e-06 ***
-    ## country_code_iso_3166IT    0.2225640  0.0899152   2.475 0.013314 *  
-    ## country_code_iso_3166LT    0.1974155  0.0903987   2.184 0.028975 *  
-    ## country_code_iso_3166LU    0.1729987  0.1103143   1.568 0.116826    
-    ## country_code_iso_3166LV    0.5979523  0.0930551   6.426 1.31e-10 ***
-    ## country_code_iso_3166MT   -0.1678659  0.1091070  -1.539 0.123916    
-    ## country_code_iso_3166NL   -0.3297082  0.0886860  -3.718 0.000201 ***
-    ## country_code_iso_3166PL    0.4036743  0.0905292   4.459 8.23e-06 ***
-    ## country_code_iso_3166PT   -0.1685798  0.0889691  -1.895 0.058117 .  
-    ## country_code_iso_3166RO    0.1193201  0.0894711   1.334 0.182329    
-    ## country_code_iso_3166SE   -0.4270714  0.0893343  -4.781 1.75e-06 ***
-    ## country_code_iso_3166SI   -0.0304578  0.0888536  -0.343 0.731759    
-    ## country_code_iso_3166SK    0.6490991  0.0937713   6.922 4.45e-12 ***
-    ## ---
-    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
-    ## 
-    ## (Dispersion parameter for binomial family taken to be 1)
-    ## 
-    ##     Null deviance: 37212  on 27338  degrees of freedom
-    ## Residual deviance: 36404  on 27308  degrees of freedom
-    ## AIC: 36466
-    ## 
-    ## Number of Fisher Scoring iterations: 4
-
-A relatively good model takes the age, rural regions, coal regions and
-countries.
-
-``` r
-summary ( glm ( eu_env_policy ~ age_exact + is_rural +
-                  is_coal_region + 
-                  country_code_iso_3166,
-                data = eb18,
-                family = 'binomial'))
-```
-
-    ## 
-    ## Call:
-    ## glm(formula = eu_env_policy ~ age_exact + is_rural + is_coal_region + 
+    ## glm(formula = is_eu_env_policy_totally ~ age_exact + is_rural + 
     ##     country_code_iso_3166, family = "binomial", data = eb18)
     ## 
     ## Deviance Residuals: 
     ##     Min       1Q   Median       3Q      Max  
-    ## -1.7072  -1.2503   0.8463   1.0479   1.4809  
+    ## -1.5291  -1.1104  -0.9101   1.2131   1.5587  
     ## 
     ## Coefficients:
-    ##                            Estimate Std. Error z value Pr(>|z|)    
-    ## (Intercept)                0.021865   0.071348   0.306 0.759254    
-    ## age_exact                  0.003283   0.000697   4.711 2.47e-06 ***
-    ## is_rural                   0.124809   0.027114   4.603 4.16e-06 ***
-    ## is_coal_region             0.152422   0.057169   2.666 0.007672 ** 
-    ## country_code_iso_3166BE    0.171616   0.089216   1.924 0.054405 .  
-    ## country_code_iso_3166BG    0.542022   0.091928   5.896 3.72e-09 ***
-    ## country_code_iso_3166CY   -0.767716   0.111464  -6.888 5.68e-12 ***
-    ## country_code_iso_3166CZ    0.692816   0.094624   7.322 2.45e-13 ***
-    ## country_code_iso_3166DE-E  0.265159   0.115291   2.300 0.021453 *  
-    ## country_code_iso_3166DE-W  0.123084   0.090874   1.354 0.175597    
-    ## country_code_iso_3166DK   -0.027846   0.089699  -0.310 0.756228    
-    ## country_code_iso_3166EE    0.707856   0.094179   7.516 5.65e-14 ***
-    ## country_code_iso_3166ES   -0.461315   0.089319  -5.165 2.41e-07 ***
-    ## country_code_iso_3166FI    0.103974   0.089947   1.156 0.247703    
-    ## country_code_iso_3166FR    0.231058   0.089981   2.568 0.010233 *  
-    ## country_code_iso_3166GB   -0.069278   0.089414  -0.775 0.438455    
-    ## country_code_iso_3166GR    0.092173   0.089572   1.029 0.303461    
-    ## country_code_iso_3166HR   -0.130298   0.088734  -1.468 0.141994    
-    ## country_code_iso_3166HU   -0.133311   0.088734  -1.502 0.133002    
-    ## country_code_iso_3166IE   -0.454947   0.089428  -5.087 3.63e-07 ***
-    ## country_code_iso_3166IT    0.262491   0.090305   2.907 0.003652 ** 
-    ## country_code_iso_3166LT    0.206298   0.090439   2.281 0.022544 *  
-    ## country_code_iso_3166LU    0.173036   0.110517   1.566 0.117421    
-    ## country_code_iso_3166LV    0.598943   0.093092   6.434 1.24e-10 ***
-    ## country_code_iso_3166MT   -0.181764   0.109191  -1.665 0.095984 .  
-    ## country_code_iso_3166NL   -0.327898   0.088715  -3.696 0.000219 ***
-    ## country_code_iso_3166PL    0.342178   0.093014   3.679 0.000234 ***
-    ## country_code_iso_3166PT   -0.176382   0.089092  -1.980 0.047728 *  
-    ## country_code_iso_3166RO    0.100593   0.089719   1.121 0.262202    
-    ## country_code_iso_3166SE   -0.385753   0.089787  -4.296 1.74e-05 ***
-    ## country_code_iso_3166SI   -0.078249   0.089536  -0.874 0.382151    
-    ## country_code_iso_3166SK    0.584199   0.096123   6.078 1.22e-09 ***
+    ##                             Estimate Std. Error z value Pr(>|z|)    
+    ## (Intercept)               -0.0952937  0.0730342  -1.305 0.191967    
+    ## age_exact                 -0.0005853  0.0007321  -0.800 0.423998    
+    ## is_rural                  -0.1005625  0.0281266  -3.575 0.000350 ***
+    ## country_code_iso_3166BE   -0.2068361  0.0901029  -2.296 0.021701 *  
+    ## country_code_iso_3166BG   -0.2584107  0.0957111  -2.700 0.006936 ** 
+    ## country_code_iso_3166CY    0.9028138  0.1172927   7.697 1.39e-14 ***
+    ## country_code_iso_3166CZ   -0.6194229  0.0957543  -6.469 9.87e-11 ***
+    ## country_code_iso_3166DE-E -0.2962542  0.1137450  -2.605 0.009200 ** 
+    ## country_code_iso_3166DE-W -0.1147078  0.0917855  -1.250 0.211395    
+    ## country_code_iso_3166DK    0.1250150  0.0923025   1.354 0.175607    
+    ## country_code_iso_3166EE   -0.4553723  0.0975714  -4.667 3.06e-06 ***
+    ## country_code_iso_3166ES    0.6145438  0.0930316   6.606 3.95e-11 ***
+    ## country_code_iso_3166FI   -0.0426893  0.0920531  -0.464 0.642829    
+    ## country_code_iso_3166FR   -0.1189659  0.0923405  -1.288 0.197628    
+    ## country_code_iso_3166GB    0.2131367  0.0924043   2.307 0.021079 *  
+    ## country_code_iso_3166GR   -0.0168089  0.0916605  -0.183 0.854498    
+    ## country_code_iso_3166HR    0.1132982  0.0897591   1.262 0.206860    
+    ## country_code_iso_3166HU    0.1604719  0.0904568   1.774 0.076060 .  
+    ## country_code_iso_3166IE    0.4796980  0.0913206   5.253 1.50e-07 ***
+    ## country_code_iso_3166IT   -0.1669919  0.0924151  -1.807 0.070766 .  
+    ## country_code_iso_3166LT    0.0003592  0.0939971   0.004 0.996951    
+    ## country_code_iso_3166LU   -0.0256665  0.1145326  -0.224 0.822681    
+    ## country_code_iso_3166LV   -0.3412636  0.0965895  -3.533 0.000411 ***
+    ## country_code_iso_3166MT    0.2866877  0.1133868   2.528 0.011458 *  
+    ## country_code_iso_3166NL    0.3148488  0.0901416   3.493 0.000478 ***
+    ## country_code_iso_3166PL   -0.2909351  0.0927514  -3.137 0.001709 ** 
+    ## country_code_iso_3166PT    0.2792025  0.0918006   3.041 0.002355 ** 
+    ## country_code_iso_3166RO   -0.0262389  0.0916650  -0.286 0.774689    
+    ## country_code_iso_3166SE    0.4055062  0.0917655   4.419 9.92e-06 ***
+    ## country_code_iso_3166SI    0.1628159  0.0917214   1.775 0.075879 .  
+    ## country_code_iso_3166SK   -0.4351014  0.0968156  -4.494 6.99e-06 ***
     ## ---
     ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
     ## 
     ## (Dispersion parameter for binomial family taken to be 1)
     ## 
-    ##     Null deviance: 37187  on 27320  degrees of freedom
-    ## Residual deviance: 36351  on 27289  degrees of freedom
-    ##   (18 observations deleted due to missingness)
-    ## AIC: 36415
+    ##     Null deviance: 34168  on 24734  degrees of freedom
+    ## Residual deviance: 33571  on 24704  degrees of freedom
+    ##   (2604 observations deleted due to missingness)
+    ## AIC: 33633
+    ## 
+    ## Number of Fisher Scoring iterations: 4
+
+A relatively good model takes the age, rural regions, coal regions and
+countries. In Poland, even after controlling for age, lack of subjective
+urbanization and coal regions, the country effect is significantly
+negative.
+
+``` r
+summary ( glm ( is_eu_env_policy_totally ~
+                              age_exact +
+                              is_rural + 
+                              is_coal_region + 
+                              country_code_iso_3166,
+                data = eb18,
+                family = 'binomial') 
+          )
+```
+
+    ## 
+    ## Call:
+    ## glm(formula = is_eu_env_policy_totally ~ age_exact + is_rural + 
+    ##     is_coal_region + country_code_iso_3166, family = "binomial", 
+    ##     data = eb18)
+    ## 
+    ## Deviance Residuals: 
+    ##     Min       1Q   Median       3Q      Max  
+    ## -1.5292  -1.1090  -0.9072   1.2192   1.5964  
+    ## 
+    ## Coefficients:
+    ##                             Estimate Std. Error z value Pr(>|z|)    
+    ## (Intercept)               -0.0946553  0.0730361  -1.296 0.194973    
+    ## age_exact                 -0.0006034  0.0007322  -0.824 0.409873    
+    ## is_rural                  -0.0999798  0.0281301  -3.554 0.000379 ***
+    ## is_coal_region            -0.1209817  0.0592758  -2.041 0.041251 *  
+    ## country_code_iso_3166BE   -0.2068222  0.0901027  -2.295 0.021710 *  
+    ## country_code_iso_3166BG   -0.2583087  0.0957109  -2.699 0.006958 ** 
+    ## country_code_iso_3166CY    0.9028817  0.1172924   7.698 1.39e-14 ***
+    ## country_code_iso_3166CZ   -0.5937308  0.0965597  -6.149 7.80e-10 ***
+    ## country_code_iso_3166DE-E -0.2350801  0.1176256  -1.999 0.045658 *  
+    ## country_code_iso_3166DE-W -0.0883896  0.0926838  -0.954 0.340251    
+    ## country_code_iso_3166DK    0.1253112  0.0923026   1.358 0.174586    
+    ## country_code_iso_3166EE   -0.4552263  0.0975712  -4.666 3.08e-06 ***
+    ## country_code_iso_3166ES    0.6268411  0.0932410   6.723 1.78e-11 ***
+    ## country_code_iso_3166FI   -0.0424506  0.0920531  -0.461 0.644688    
+    ## country_code_iso_3166FR   -0.1188905  0.0923403  -1.288 0.197911    
+    ## country_code_iso_3166GB    0.2132355  0.0924042   2.308 0.021019 *  
+    ## country_code_iso_3166GR   -0.0146698  0.0916680  -0.160 0.872856    
+    ## country_code_iso_3166HR    0.1132381  0.0897589   1.262 0.207100    
+    ## country_code_iso_3166HU    0.1605930  0.0904567   1.775 0.075839 .  
+    ## country_code_iso_3166IE    0.4878495  0.0914158   5.337 9.47e-08 ***
+    ## country_code_iso_3166IT   -0.1667910  0.0924151  -1.805 0.071105 .  
+    ## country_code_iso_3166LT    0.0005148  0.0939969   0.005 0.995630    
+    ## country_code_iso_3166LU   -0.0256380  0.1145323  -0.224 0.822874    
+    ## country_code_iso_3166LV   -0.3412398  0.0965893  -3.533 0.000411 ***
+    ## country_code_iso_3166MT    0.2867691  0.1133865   2.529 0.011435 *  
+    ## country_code_iso_3166NL    0.3149638  0.0901414   3.494 0.000476 ***
+    ## country_code_iso_3166PL   -0.2444311  0.0954802  -2.560 0.010467 *  
+    ## country_code_iso_3166PT    0.2792000  0.0918004   3.041 0.002355 ** 
+    ## country_code_iso_3166RO   -0.0123482  0.0919197  -0.134 0.893136    
+    ## country_code_iso_3166SE    0.4058936  0.0917659   4.423 9.73e-06 ***
+    ## country_code_iso_3166SI    0.1817151  0.0921973   1.971 0.048731 *  
+    ## country_code_iso_3166SK   -0.3936395  0.0988987  -3.980 6.88e-05 ***
+    ## ---
+    ## Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1
+    ## 
+    ## (Dispersion parameter for binomial family taken to be 1)
+    ## 
+    ##     Null deviance: 34168  on 24734  degrees of freedom
+    ## Residual deviance: 33567  on 24703  degrees of freedom
+    ##   (2604 observations deleted due to missingness)
+    ## AIC: 33631
     ## 
     ## Number of Fisher Scoring iterations: 4

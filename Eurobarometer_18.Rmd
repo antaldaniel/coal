@@ -59,18 +59,28 @@ eb18 <- ZA7488 %>%
                   "region_nuts_names", "region_nuts_codes",
                   "age_exact", "age_education", "type_of_community",
                   "age_education_recoded_5_cat",
-                  "country_code_iso_3166"),
+                  "country_code_iso_3166", 
+                  "weight_result_from_target_redressment"),
            contains("occupation")) %>%
-  dplyr::rename ( eu_env_policy  = eu_env_policy_statements_more_pub_fin_support_for_clean_energy_even_if_fossil_subsidies_reduced) %>%
+  dplyr::rename ( eu_env_policy  = eu_env_policy_statements_more_pub_fin_support_for_clean_energy_even_if_fossil_subsidies_reduced, 
+                  w1 = weight_result_from_target_redressment ) %>%
   mutate ( eu_env_policy = haven::as_factor ( eu_env_policy )) %>%
   mutate_at ( vars(starts_with("type"),
                    contains("recoded"),
                    contains("occupation")), haven::as_factor) %>%
   mutate ( eu_env_policy_numeric = case_when (
-           grepl("agree", as.character(eu_env_policy))    ~ 1,
+           grepl("Totally agree|Tend to agree",
+                 as.character(eu_env_policy))    ~ 1,
            grepl("disagree", as.character(eu_env_policy)) ~ 0,
            TRUE ~ NA_real_ )
            ) %>%
+  mutate ( is_eu_env_policy_totally = case_when (
+           grepl("Totally agree",
+                 as.character(eu_env_policy))    ~ 1,
+           grepl("Tend to|disagree", as.character(eu_env_policy)) ~ 0,
+           TRUE ~ NA_real_ )
+           ) %>%
+  mutate ( total_agreement_weighted = w1*is_eu_env_policy_totally) %>%
   mutate ( age_education = recode_age_education(var = age_education,
                                                 age_exact = age_exact )
            ) %>%
@@ -100,13 +110,32 @@ I created a coal region proxy with this document: [Coal regions in transition](h
 
 ## Simple Models 
 
+The problem with this variable is that it has very little variance.
+
+```{r histogram}
+library(ggplot2)
+
+eb18 <- readRDS(file.path("data", "eb18.rds"))
+
+eb18 %>%
+  ggplot( data = ., 
+          aes ( x= as.factor(eu_env_policy_numeric) )) +
+  geom_histogram( stat = "count")
+
+
+eb18 %>%
+  ggplot( data = ., 
+          aes ( x= as.factor(is_eu_env_policy_totally ) )) +
+  geom_histogram( stat = "count")
+```
+
+
 ### Simple GLM model outside Poland
 
 
 ```{r simplemodeloutsidepoland18}
-eb18 <- readRDS(file.path("data", "eb18.rds"))
-summary ( glm ( eu_env_policy ~ age_exact +
-                  is_rural + is_student  +
+summary ( glm ( is_eu_env_policy_totally ~ age_exact +
+                  is_rural +
                   is_coal_region,
                 data = filter ( eb18,
                                 country_code_iso_3166!= "PL"),
@@ -120,10 +149,12 @@ Support for the target variable `eu_env_policy_statements_more_pub_fin_support_f
 
 ### Simple GLM model for Poland
 
-The model would be similar in Poland, but the variables are not significant.
+The `coal regions` in Poland are not significant and do not have a negative coefficient.
 
 ```{r simplemodelsPL18, echo=TRUE}
-summary ( glm ( eu_env_policy ~ is_coal_region,
+summary ( glm ( is_eu_env_policy_totally ~ age_exact +
+                  is_rural + 
+                  is_coal_region,
                 data = filter ( eb18,
                                 country_code_iso_3166 == "PL"),
                 family = 'binomial'))
@@ -132,23 +163,29 @@ summary ( glm ( eu_env_policy ~ is_coal_region,
 
 ### Simple Model With Country Effects
 
-One explanation for the difference is that support for the measure in Poland is overall smaller than in the EU. But in this case the difference is not very prononunced.
+The Poland-only model is counterintuitive, becuase in Poland the level of total agreement is 29% less likely than in the average EU country.
 
 ```{r countrymodel18, echo=TRUE}
-summary ( glm ( eu_env_policy ~ age_exact +
-                  is_student +
-                  country_code_iso_3166,
+
+country_effects_18 <- glm ( is_eu_env_policy_totally ~
+                              age_exact +
+                              is_rural + 
+                              country_code_iso_3166,
                 data = eb18,
-                family = 'binomial'))
+                family = 'binomial')
+
+summary ( country_effects_18 )
 ```
 
-A relatively good model takes the age, rural regions, coal regions and countries.
-
+A relatively good model takes the age, rural regions, coal regions and countries. In Poland, even after controlling for age, lack of subjective urbanization and coal regions, the country effect is significantly negative.
 
 ```{r model18, echo=TRUE}
-summary ( glm ( eu_env_policy ~ age_exact + is_rural +
-                  is_coal_region + 
-                  country_code_iso_3166,
+summary ( glm ( is_eu_env_policy_totally ~
+                              age_exact +
+                              is_rural + 
+                              is_coal_region + 
+                              country_code_iso_3166,
                 data = eb18,
-                family = 'binomial'))
+                family = 'binomial') 
+          )
 ```
