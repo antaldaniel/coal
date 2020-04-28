@@ -20,10 +20,6 @@ if ( ! "eurobarometer" %in% list_of_packages ) {
   devtools::install_github('antaldaniel/eurobarometer')
 }
 
-if ( ! "sjlabelled" %in% list_of_packages ) {
-  install.packages("sjlabelled")
-}
-
 library(eurobarometer)
 library(tidyverse)
 ```

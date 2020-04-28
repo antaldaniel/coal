@@ -22,7 +22,9 @@ knitr::opts_chunk$set(
 ## Processed Files
 
 * [Eurobarometer 2013](https://github.com/antaldaniel/coal/blob/master/Eurobarometer_13.md)
+* [Eurobarometer 2017](https://github.com/antaldaniel/coal/blob/master/Eurobarometer_17.md)
 * [Eurobarometer 2018](https://github.com/antaldaniel/coal/blob/master/Eurobarometer_18.md)
+* [Eurobarometer 2019](https://github.com/antaldaniel/coal/blob/master/Eurobarometer_19.md)
 
 
 ## Code of Conduct

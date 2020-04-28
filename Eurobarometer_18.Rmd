@@ -20,10 +20,6 @@ if ( ! "eurobarometer" %in% list_of_packages ) {
   devtools::install_github('antaldaniel/eurobarometer')
 }
 
-if ( ! "sjlabelled" %in% list_of_packages ) {
-  install.packages("sjlabelled")
-}
-
 library(eurobarometer)
 library(tidyverse)
 ```
@@ -94,6 +90,11 @@ eb18 <- ZA7488 %>%
     grepl ( "studying", tolower(as.character(age_education_recoded_5_cat))) ~ 1,
     grepl ( "refuse", tolower(as.character(type_of_community)))  ~ NA_real_,
     TRUE ~ 0)
+  )  %>%
+  mutate  ( is_highly_educated = case_when (
+    grepl ( "20 years", tolower(as.character(age_education_recoded_5_cat))) ~ 1,
+    grepl ( "refuse", tolower(as.character(type_of_community)))  ~ NA_real_,
+    TRUE ~ 0)
   ) %>%
   mutate ( year_survey = 2018 ) %>%
   mutate ( coal_region = which_coal_region(region_nuts_codes)) %>%
@@ -106,11 +107,9 @@ saveRDS(eb18,
 
 I created a coal region proxy with this document: [Coal regions in transition](https://ec.europa.eu/energy/topics/oil-gas-and-coal/EU-coal-regions/coal-regions-transition_en)
 
-
-
 ## Simple Models 
 
-The problem with this variable is that it has very little variance.
+The problem with this variable is that it has very little variance. Therefore the target variable is not `agreement` but `total agreement`.
 
 ```{r histogram}
 library(ggplot2)
@@ -134,8 +133,8 @@ eb18 %>%
 
 
 ```{r simplemodeloutsidepoland18}
-summary ( glm ( is_eu_env_policy_totally ~ age_exact +
-                  is_rural +
+summary ( glm ( is_eu_env_policy_totally ~
+                  is_rural + is_highly_educated +
                   is_coal_region,
                 data = filter ( eb18,
                                 country_code_iso_3166!= "PL"),
@@ -152,8 +151,8 @@ Support for the target variable `eu_env_policy_statements_more_pub_fin_support_f
 The `coal regions` in Poland are not significant and do not have a negative coefficient.
 
 ```{r simplemodelsPL18, echo=TRUE}
-summary ( glm ( is_eu_env_policy_totally ~ age_exact +
-                  is_rural + 
+summary ( glm ( is_eu_env_policy_totally ~ 
+                  is_rural + is_highly_educated +
                   is_coal_region,
                 data = filter ( eb18,
                                 country_code_iso_3166 == "PL"),
@@ -168,8 +167,7 @@ The Poland-only model is counterintuitive, becuase in Poland the level of total 
 ```{r countrymodel18, echo=TRUE}
 
 country_effects_18 <- glm ( is_eu_env_policy_totally ~
-                              age_exact +
-                              is_rural + 
+                              is_rural + is_highly_educated +
                               country_code_iso_3166,
                 data = eb18,
                 family = 'binomial')
@@ -177,11 +175,10 @@ country_effects_18 <- glm ( is_eu_env_policy_totally ~
 summary ( country_effects_18 )
 ```
 
-A relatively good model takes the age, rural regions, coal regions and countries. In Poland, even after controlling for age, lack of subjective urbanization and coal regions, the country effect is significantly negative.
+A relatively good model takes the rural regions, coal regions, high education level and countries. In Poland, even after controlling for high education level, lack of subjective urbanization and coal regions, the country effect is significantly negative.
 
 ```{r model18, echo=TRUE}
 summary ( glm ( is_eu_env_policy_totally ~
-                              age_exact +
                               is_rural + 
                               is_coal_region + 
                               country_code_iso_3166,
