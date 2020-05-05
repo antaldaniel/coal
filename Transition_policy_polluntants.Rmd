@@ -1,0 +1,135 @@
+---
+title: "Simple Analysis Of Policy Agreement & Air Pollutants"
+author: "Daniel Antal, CFA"
+date: "5/5/2020"
+output: 
+  github_document:
+    toc: true
+  html_document:
+    toc: true
+    theme: united
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(dplyr)
+library(fastDummies)
+library(factoextra)
+library(tibble)
+library(stringr)
+eb19_raw <- readRDS( "data/eb19.rds") 
+normalize_text <- function(x) {
+  
+  x <- as.character(x)
+  x <- tolower(x)
+  x <- str_trim(x, side = "both")
+  x <- gsub("\\s", "_", x)
+  x <- gsub(":|!|,|;|%","", x)
+  x <- gsub("____|___|__", "_", x)
+  x
+}
+
+#source("R/air_pollutants.R")
+load("data/air_pollutants.rda")
+```
+
+## Data Preparation
+
+
+```{r dataprep}
+transition_policy <- eb19_raw %>%
+  rowid_to_column() %>%
+  mutate ( transition_policy = normalize_text(transition_policy)) %>%
+  fastDummies::dummy_cols(select_columns = 'transition_policy') %>%
+  mutate ( transition_policy_agree = case_when(
+    transition_policy_totally_agree + transition_policy_tend_to_agree > 0 ~ 1, 
+    TRUE ~ 0
+  )) %>%
+  mutate ( transition_policy_disagree = case_when(
+    transition_policy_totally_disagree + transition_policy_tend_to_disagree > 0 ~ 1, 
+    TRUE ~ 0
+  )) 
+```
+
+
+## PCA
+
+If later needed, calculate the principal components:
+
+```{r pca, echo=FALSE}
+transition_policy_pca <- prcomp(transition_policy [,c(25:29)], scale = TRUE)
+fviz_eig(transition_policy_pca)
+
+transition_policy <- transition_policy  %>%
+  bind_cols( 
+    transition_policy_pca$x %>%
+      as_tibble() %>%
+      purrr::set_names ( ., paste0("tp_", tolower(names(.))))
+  )
+```
+
+```{r pollutants}
+eb19_df  <- transition_policy %>% 
+  left_join ( air_pollutants, by = 'region_nuts_codes' ) %>%
+  mutate ( is_poland = ifelse ( country_code == "PL", 1, 0))
+```
+
+
+## Agreement 
+
+Significantly more people agree where
+- there are more polutants
+- who are younger
+- more educated
+- in many countries, including from V4 Hungary
+
+Significantly less people agree 
+- in rural areas
+- older
+- less educated
+- less polluted
+- coal regions 
+- Belgium (coal), Bulgaria, Croatia, Czechia, Estonia, Italy, Lativa, Luxembourg (coal), Finland, Poland, Romania, Slovakia
+
+
+```{r agreement}
+c("transition_policy_totally_agree" , "pm10", "so2", "age_exact", "is_highly_educated" , "is_rural")
+
+summary( glm ( transition_policy_totally_agree ~ pm10 + so2 + 
+                 age_exact +
+                 is_highly_educated + is_rural + is_coal_region +
+                 country_code, 
+               data = eb19_df, 
+               family = binomial ))
+
+summary( glm ( transition_policy_agree ~ pm10 + so2 + age_exact +
+                 is_highly_educated + is_rural, 
+               data = eb19_df, 
+               family = binomial ))
+```
+
+## Disagreement
+
+The disagreement is consistent with the agreement variables.
+
+Explicit disagreement is higher when 
+- there is coal
+- less pollutants
+
+Polish people are significantly less likely to agree. Disagreement is more difficult to model, because the vast majority of the people tend to agree.
+
+
+```{r disagreement}
+summary( glm ( transition_policy_totally_disagree ~ 
+                 pm10 + so2  + is_coal_region,  
+               data = eb19_df,
+               family = binomial ))
+
+summary( glm ( transition_policy_disagree ~ pm10 + so2 + is_coal_region +
+                 is_poland, 
+               data = eb19_df, 
+               family = binomial ))
+```
+
+```{r models}
+```
